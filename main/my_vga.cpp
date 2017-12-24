@@ -41,7 +41,7 @@ namespace GpioPins {
     const gpio_num_t SpiMosi        = static_cast<gpio_num_t>(YOUR_GPIO_NUM_VIDEO);  // OUT: VGA Video
 }
 
-
+namespace {
 //
 //  800x600@60Hz, PixelFrequency = 40 MHz
 //
@@ -65,30 +65,32 @@ const int               SpiDmaChannel           = 1;
 const double            SpiDmaClockSpeedInHz    = 40.0 * 1000.0 * 1000.0;   // 40.0 MHz
 
 
-static const double	VgaPixelFrequencyInHz		= 40.0 * 1000.0 * 1000.0;   // 40.0 MHz
+const double	VgaPixelFrequencyInHz		= 40.0 * 1000.0 * 1000.0;   // 40.0 MHz
 
-static const int	VgaVideoWidth				= 800;
-static const int	VgaVideoHeight				= 600;
+const int	VgaVideoWidth				= 800;
+const int	VgaVideoHeight				= 600;
 
-static const int	VgaHSyncFrontPorchInPixels	= 40;
-static const int	VgaHSyncSignalInPixels		= 128;
-static const int	VgaHSyncBackPorchInPixels	= 88;
+const int	VgaHSyncFrontPorchInPixels	= 40;
+const int	VgaHSyncSignalInPixels		= 128;
+const int	VgaHSyncBackPorchInPixels	= 88;
 
-static const int	VgaVSyncFrontPorchInLines	= 1;
-static const int	VgaVSyncSignalInLines		= 4;
-static const int	VgaVSyncBackPorchInLines	= 23;
+const int	VgaVSyncFrontPorchInLines	= 1;
+const int	VgaVSyncSignalInLines		= 4;
+const int	VgaVSyncBackPorchInLines	= 23;
 
-static const int	VgaSignalWidth				=	// 1056 pixels / line
-						  VgaHSyncFrontPorchInPixels
-						+ VgaHSyncSignalInPixels
-						+ VgaHSyncBackPorchInPixels
-						+ VgaVideoWidth;
+const int	VgaSignalWidth =	// 1056 pixels / line
+				  VgaHSyncFrontPorchInPixels
+				+ VgaHSyncSignalInPixels
+				+ VgaHSyncBackPorchInPixels
+				+ VgaVideoWidth;
 
-static const int	VgaSignalHeight				=	// 628 lines / frame
-						  VgaVSyncFrontPorchInLines
-						+ VgaVSyncSignalInLines
-						+ VgaVSyncBackPorchInLines
-						+ VgaVideoHeight;
+const int	VgaSignalHeight =	// 628 lines / frame
+				  VgaVSyncFrontPorchInLines
+				+ VgaVSyncSignalInLines
+				+ VgaVSyncBackPorchInLines
+				+ VgaVideoHeight;
+} // anonymous namespace
+
 
 class Ctx {
 	using ThisClass = Ctx;
