@@ -34,9 +34,19 @@ static uint32_t rnd(int x) {
 
 
 //
-static void reversePixel(int x, int y, int color) {
+static void setPixel(int x, int y, int color) {
 	uint8_t* p = video_buf + x/8 + y * VIDEO_STRIDE;
-	const uint8_t mask = 1 << (x & 7);
+	const uint8_t mask = 0x80 >> (x & 7);
+	if(color) {
+		*p |= mask;
+	} else {
+		*p = ~mask;
+	}
+}
+
+static void reversePixel(int x, int y) {
+	uint8_t* p = video_buf + x/8 + y * VIDEO_STRIDE;
+	const uint8_t mask = 0x80 >> (x & 7);
 	*p ^= mask;
 }
 
@@ -75,7 +85,17 @@ static void update() {
 	}
 
 	for(int i = 0; i < 1000; ++i) {
-		reversePixel(rnd(VIDEO_WIDTH), rnd(VIDEO_HEIGHT), rnd(2));
+		reversePixel(rnd(VIDEO_WIDTH), rnd(VIDEO_HEIGHT));
+	}
+
+	for(int x = 0; x < VIDEO_WIDTH; ++x) {
+		setPixel(x, 0, 1);
+		setPixel(x, VIDEO_HEIGHT-1, 1);
+	}
+
+	for(int y = 0; y < VIDEO_HEIGHT; ++y) {
+		setPixel(0, y, 1);
+		setPixel(VIDEO_WIDTH-1, y, 1);
 	}
 }
 
