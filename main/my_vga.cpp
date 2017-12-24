@@ -191,7 +191,6 @@ public:
 		      SpiDmaHost
 		    , SpiDmaChannel
 		    , descs
-		    , VPixelsTotal
 		    , SpiDmaClockSpeedInHz
 		    , GpioPins::SpiMosi
 		    , waitCycle

@@ -48,7 +48,6 @@ esp_err_t myspi_prepare_circular_buffer(
       const spi_host_device_t   spiHostDevice
     , const int                 dma_chan
     , const lldesc_t*           lldescs
-    , const int                 bitsPerLoop
     , const double              dmaClockSpeedInHz
     , const gpio_num_t          mosi_gpio_num
     , const int                 waitCycle

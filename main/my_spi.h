@@ -20,7 +20,6 @@ esp_err_t myspi_prepare_circular_buffer(
       spi_host_device_t     host                        // HSPI_HOST or VSPI_HOST
     , int                   dma_chan                    //
     , const lldesc_t*       lldesc                      // lldesc_t which makes circular buffer
-    , int                   bitsPerLoop                 // Number of bits in circular buffer
     , double                clock_speed_hz              // SPI speed in Hz
     , gpio_num_t            mosi_gpio_num               // GPIO
     , int                   wait_cycle                  // Number of wait cycle before actual transmission (1 cycle means SPI DMA's single cycle)
