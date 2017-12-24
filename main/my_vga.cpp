@@ -186,8 +186,8 @@ public:
 		return ESP_OK;
 	}
 
-	void kickTimerAndDma() {
-		const int waitCycle             = 0;
+	void IRAM_ATTR kickTimerAndDma() {
+		const int waitCycle             = 44;		// H-SYNC backporch : 2.17us
 
 		myspi_prepare_circular_buffer(
 		      SpiDmaHost
@@ -244,24 +244,27 @@ public:
 		{
 		    spi_dev_t* const spiHw = myspi_get_hw_for_host(HSPI_HOST);
 
-		    // Start SPI DMA transfer (1)
-		    spiHw->dma_out_link.start   = 1;
-
 		    LEDC.timer_group[ledc_speed_mode].timer[HTimer].conf.rst = 1;
 		    LEDC.timer_group[ledc_speed_mode].timer[VTimer].conf.rst = 1;
 
 		    // Start H-Sync timer
 		    LEDC.timer_group[ledc_speed_mode].timer[HTimer].conf.rst = 0;
 
+			// Start SPI DMA transfer (2)
+		    spiHw->cmd.usr = 1;
+		    // Start SPI DMA transfer (1)
+		    spiHw->dma_out_link.start   = 1;
+
 		    // Make H-Sync backporch
 		    //      TODO : Find more precice/stable way for waiting.
 		    {
-		        const int w = 9;    // 2.88us
-		        for(volatile int i = 0; i < w; ++i) {}
+				static volatile int c = 0;
+				++c;		// 1.36us
+//				++c;		// 5.36us
+//				++c;		// 5.36us
+//				++c;		// 5.36us
+//				xtbsp_delay_ns(2200);
 		    }
-
-		    // Start SPI DMA transfer (2)
-		    spiHw->cmd.usr = 1;
 
 		    // Start V-Sync timer
 		    LEDC.timer_group[ledc_speed_mode].timer[VTimer].conf.rst = 0;
