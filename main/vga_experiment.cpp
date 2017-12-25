@@ -56,6 +56,13 @@ static void clearAllPixels() {
 
 
 //
+static int32_t vCount = 0;
+static void IRAM_ATTR onVsync(void*) {
+	++vCount;
+}
+
+
+//
 static void init() {
 	myvga_init_params_t params;
 	myvga_prepare_init_init_params(&params);
@@ -74,6 +81,9 @@ static void init() {
 
 	// Initialize VGA class.
 	myvga_init(&params, vga_buf, s);
+
+	// Set V-Sync callback (ISR)
+	myvga_set_vsync_callback_function(onVsync, NULL);
 }
 
 
@@ -107,5 +117,10 @@ extern "C" void app_main() {
 	for(;;) {
 		vTaskDelay(10 / portTICK_RATE_MS);
 		update();
+
+		static uint32_t c = 0;
+		if(c++ % 100 == 0) {
+			printf("vCount = %d\n", vCount);
+		}
 	}
 }

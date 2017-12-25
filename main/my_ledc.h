@@ -13,6 +13,13 @@ extern "C" {
 #define MY_ESP_ERR_LEDC_FREQUENCY_IS_TOO_HIGH   MY_ESP_ERR_LEDC(1)
 #define MY_ESP_ERR_LEDC_FREQUENCY_IS_TOO_LOW    MY_ESP_ERR_LEDC(2)
 
+typedef void (*myledc_isr_function)(void*);
+
+typedef enum myledc_intr_type_t {
+	MYLEDC_INTR_DISABLE = 0,
+	MYLEDC_INTR_OVERFLOW,
+} myledc_intr_type_t;
+
 esp_err_t myledc_set_registers(
       gpio_num_t        gpio_num
 	, ledc_channel_t    ledc_channel
@@ -23,6 +30,7 @@ esp_err_t myledc_set_registers(
 	, ledc_clk_src_t	timer_clk_src
 	, ledc_mode_t		speed_mode
 	, ledc_intr_type_t	intr_type
+	, myledc_intr_type_t	enable_overflow_interrupt
 );
 
 esp_err_t myledc_set_frequency_and_duty(
@@ -32,6 +40,13 @@ esp_err_t myledc_set_frequency_and_duty(
     , ledc_timer_bit_t  duty_resolution
     , ledc_timer_t      timer_num
     , ledc_channel_t    ledc_channel
+	, myledc_intr_type_t	enable_overflow_interrupt
+);
+
+esp_err_t myledc_set_ovf_isr_handler(
+	  ledc_timer_t			timer_num
+	, myledc_isr_function	isr_function
+	, void*					user_arg
 );
 
 
