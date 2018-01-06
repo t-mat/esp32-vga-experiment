@@ -25,6 +25,12 @@ esp_err_t myspi_prepare_circular_buffer(
     , int                   wait_cycle          // Number of wait cycle before actual transmission (1 cycle means SPI DMA's single cycle)
 );
 
+esp_err_t myspi_release_circular_buffer(
+      const spi_host_device_t   host
+    , const int                 dma_chan
+    , const gpio_num_t          mosi_gpio_num
+);
+
 spi_dev_t *myspi_get_hw_for_host(spi_host_device_t host);
 
 #ifdef __cplusplus

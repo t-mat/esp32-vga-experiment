@@ -1,104 +1,93 @@
-/*
---------------------------------------------------------------------
-800x600
-http://tinyvga.com/vga-timing/800x600@60Hz
-
-Pixel Frequency     40.0MHz
-
-Horizontal timing
-    H-Signal    Video
-A   HI          Off     H-Sync              128 Pixels       3.20 usec
-B   LO          Off     H-Sync back porch    88 Pixels       2.20 usec
-C   LO          On      Video               800 Pixels      20.00 usec
-D   LO          Off     H-Sync front porch   40 Pixels       1.00 usec
---------------------------------------------------------------------
-Total                                       1056Pixels      26.40 usec
-
-Vertical timing
-    V-Signal    Video
-A   HI          Off     V-Sync                4 Lines         105.6 usec
-B   LO          Off     V-Sync back porch    23 Lines         607.2 usec
-C   LO          On      Video               600 Lines       15840.0 usec
-D   LO          Off     V-Sync front porch    1 Lines          26.4 usec
---------------------------------------------------------------------
-Total                                       628 Lines       16579.2 usec
-*/
 #include <string.h>
 #include <stdint.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#include <soc/ledc_struct.h>
-#include <soc/ledc_reg.h>
-#include "my_ledc.h"
+
+#include <driver/spi_common.h>
+#include <driver/spi_master.h>
+#include <soc/spi_reg.h>
+#include <soc/dport_reg.h>
+
 #include "my_spi.h"
+#include "my_rmt.h"
 #include "my_vga.h"
-
-
-//
-//  GPIO Pin definitions
-//		Configure these values by editing my_config.h
-//
-namespace GpioPins {
-    const gpio_num_t		Hsync			= static_cast<gpio_num_t>(YOUR_GPIO_NUM_HSYNC);  // OUT: VGA H-SYNC
-    const gpio_num_t		Vsync			= static_cast<gpio_num_t>(YOUR_GPIO_NUM_VSYNC);  // OUT: VGA V-SYNC
-    const gpio_num_t		SpiMosi			= static_cast<gpio_num_t>(YOUR_GPIO_NUM_VIDEO);  // OUT: VGA Video
-}
-
-
-//
-//  Peripheral definitions
-//		Configure these values by editing my_config.h
-//
-namespace Peripherals {
-	const ledc_timer_t      HTimer			= static_cast<ledc_timer_t>(YOUR_LEDC_TIMER_HSYNC);
-	const ledc_channel_t    HChannel		= static_cast<ledc_channel_t>(YOUR_LEDC_CHANNEL_HSYNC);
-	const ledc_timer_t		VTimer			= static_cast<ledc_timer_t>(YOUR_LEDC_TIMER_VSYNC);
-	const ledc_channel_t    VChannel		= static_cast<ledc_channel_t>(YOUR_LEDC_CHANNEL_VSYNC);
-	const spi_host_device_t SpiHost			= static_cast<spi_host_device_t>(YOUR_SPI_HOST);
-	const int               SpiDmaChannel	= static_cast<int>(YOUR_SPI_DMA_CHANNEL);
-}
 
 
 namespace {
 //
 //  800x600@60Hz, PixelFrequency = 40 MHz
 //
+//		http://tinyvga.com/vga-timing/800x600@60Hz
+//
+//	Pixel frequency:  40.0 MHz
+//
+//	Horizontal timing (line)
+//
+//		Polarity of horizontal sync pulse is positive.
+//		(H-Sync pulse is +V, non-pulse is 0V)
+//
+//		Visible area	 800 pixels		20000.0 ns
+//		Front porch		  40 pixels		 1000.0 ns
+//		Sync pulse		 128 pixels		 3200.0 ns
+//		Back porch		  88 pixels		 2200.0 ns
+//		Whole line		1056 pixels		26400.0 ns
+//
+//		note: All above nano-seconds are exact nano-seconds.
+//		      Thus "Whole line" requires 26400.000...0 nano-seconds.
+//
+//	Vertical timing (frame)
+//
+//		Polarity of vertical sync pulse is positive.
+//		(V-Sync pulse is +V, non-pulse is 0V)
+//
+//		Visible area	600 lines		15840.00 us
+//		Front porch		  1 line		   26.40 us
+//		Sync pulse		  4 lines		  105.60 us
+//		Back porch		 23 lines		  607.20 us
+//		Whole frame		628 lines		16579.20 us
+//
+//		note: All above micro-seconds are exact micro-seconds.
+//		      Thus "Whole frame" requires 16579.200...0 micro-seconds.
+//
+
 const double	VgaPixelFrequencyInHz	= 40.0 * 1000.0 * 1000.0;	// 40.0 MHz
 const bool      VSyncPolarity       	= true;						//  true:sync=HI, false:sync=LO
 const bool      HSyncPolarity       	= true;						//  true:sync=HI, false:sync=LO
-const double    SpiDmaClockSpeedInHz    = VgaPixelFrequencyInHz;	// 40.0 MHz
 
-const int	VgaVideoWidth				= 800;
-const int	VgaVideoHeight				= 600;
+const int		VgaVideoWidth				= 800;
+const int		VgaVideoHeight				= 600;
 
-const int	VgaHSyncFrontPorchInPixels	= 40;
-const int	VgaHSyncSignalInPixels		= 128;
-const int	VgaHSyncBackPorchInPixels	= 88;
+const int		VgaHSyncFrontPorchInPixels	= 40;
+const int		VgaHSyncSignalInPixels		= 128;
+const int		VgaHSyncBackPorchInPixels	= 88;
 
-const int	VgaVSyncFrontPorchInLines	= 1;
-const int	VgaVSyncSignalInLines		= 4;
-const int	VgaVSyncBackPorchInLines	= 23;
+const int		VgaVSyncFrontPorchInLines	= 1;
+const int		VgaVSyncSignalInLines		= 4;
+const int		VgaVSyncBackPorchInLines	= 23;
 
-const int	VgaSignalWidthInPixels =	// 1056 pixels / line
-				  VgaHSyncFrontPorchInPixels
-				+ VgaHSyncSignalInPixels
-				+ VgaHSyncBackPorchInPixels
-				+ VgaVideoWidth;
+const int		VgaSignalWidthInPixels =	// 1056 pixels / line
+					  VgaHSyncFrontPorchInPixels
+					+ VgaHSyncSignalInPixels
+					+ VgaHSyncBackPorchInPixels
+					+ VgaVideoWidth;
 
-const int	VgaSignalHeightInLines =	// 628 lines / frame
-				  VgaVSyncFrontPorchInLines
-				+ VgaVSyncSignalInLines
-				+ VgaVSyncBackPorchInLines
-				+ VgaVideoHeight;
+const int		VgaSignalHeightInLines =	// 628 lines / frame
+					  VgaVSyncFrontPorchInLines
+					+ VgaVSyncSignalInLines
+					+ VgaVSyncBackPorchInLines
+					+ VgaVideoHeight;
 
-const int	VgaTotalScreenAreaInPixels			= VgaSignalWidthInPixels * VgaSignalHeightInLines;
-const int	VgaTotalScreenAreaForVsyncInPixels  = VgaSignalWidthInPixels * VgaVSyncSignalInLines;
+const int		VgaTotalScreenAreaInPixels			= VgaSignalWidthInPixels * VgaSignalHeightInLines;
+const int		VgaTotalScreenAreaForVsyncInPixels  = VgaSignalWidthInPixels * VgaVSyncSignalInLines;
 const double	VgaVSyncDuty			= (double) VgaTotalScreenAreaForVsyncInPixels / (double) VgaTotalScreenAreaInPixels;
 const double	VgaHSyncDuty			= (double) VgaHSyncSignalInPixels / (double) VgaSignalWidthInPixels;
 const double	VgaVSyncFrequencyInHz	= (double) VgaPixelFrequencyInHz / (double) VgaTotalScreenAreaInPixels;
 const double	VgaHSyncFrequencyInHz	= (double) VgaPixelFrequencyInHz / (double) VgaSignalWidthInPixels;
 
-const int	SpiHSyncBackporchWaitCycle	= 44;		// H-SYNC backporch : 2.16us
+const int		SpiHSyncBackporchWaitCycle	= 58;		// H-Sync back porch : 2.20us
+
+const int		RmtItem32Max	= 64;
+const int		RmtItem16Max	= RmtItem32Max * 2;
+const int		RmtDurationMax	= 32767;
+
 } // anonymous namespace
 
 
@@ -118,13 +107,17 @@ public:
 	}
 
 	static size_t calcMemorySize(const myvga_init_params_t* initParams) {
-		size_t extraSize = sizeof(ThisClass);
-		extraSize += blankLineBytes;
-		extraSize += sizeof(lldesc_t) * 2 * VgaSignalHeightInLines;
+		size_t extraSize = sizeof(ThisClass);						// DRAM
+		extraSize += blankLineBytes;								// DRAM, DMA
+		extraSize += sizeof(lldesc_t) * 2 * VgaSignalHeightInLines;	// DRAM, DMA
 		return extraSize;
 	}
 
 	esp_err_t cleanup() {
+		// TODO : Stop SPI DMA
+		// TODO : Stop RMT Channels
+		// TODO : Remove RMT ISRs
+		// TODO : Disable RMT interrupts
 		return ESP_OK;
 	}
 
@@ -132,14 +125,22 @@ public:
 		auto* ap = reinterpret_cast<uint8_t*>(this);
 		ap += sizeof(ThisClass);
 
-		frameCount = 0;
-
 		{
 			const auto& ip = *initParams;
 			userVideo.width		= ip.video.width;
 			userVideo.height	= ip.video.height;
 			userVideo.stride	= ip.video.strideInBytes;
 			userVideo.buffer	= static_cast<uint8_t*>(ip.video.buffer);
+
+			spi.host			= ip.spi.host;
+			spi.dmaChan			= ip.spi.dmaChan;
+			spi.mosiGpioNum		= ip.spi.mosiGpioNum;
+			spi.hw				= myspi_get_hw_for_host(ip.spi.host);
+
+			rmt.hsyncChannel	= ip.rmt.hsyncChannel;
+			rmt.vsyncChannel	= ip.rmt.vsyncChannel;
+			rmt.hsyncGpioNum	= ip.rmt.hsyncGpioNum;
+			rmt.vsyncGpioNum	= ip.rmt.vsyncGpioNum;
 		}
 
 		vsyncCallback.callback	= nullptr;
@@ -194,132 +195,113 @@ public:
 			}
 		}
 
-		setupAndKickTimerAndDma();
+		// setup RMT for H-Sync
+		myrmt_setup_pulse_output(
+			  rmt.hsyncChannel
+			, rmt.hsyncGpioNum
+			, 1
+			, 270
+			, 1
+			, 1837
+			, 0
+			, nullptr
+		);
 
-		frameCount = 0;
-		return ESP_OK;
-	}
+		// setup RMT for V-Sync
+		{
+			int32_t nItems = 0;
+			myrmt_setup_pulse_output(
+				  rmt.vsyncChannel
+				, rmt.vsyncGpioNum
+				, 4
+				, 878
+				, 1
+				, 330704
+				, 0
+				, &nItems
+			);
+		}
 
-	void setupAndKickTimerAndDma() {
+		const double SpiDmaClockSpeedInHz = VgaPixelFrequencyInHz;
+
 		myspi_prepare_circular_buffer(
-		      Peripherals::SpiHost
-		    , Peripherals::SpiDmaChannel
+		      spi.host
+		    , spi.dmaChan
 		    , descs
 		    , SpiDmaClockSpeedInHz
-		    , GpioPins::SpiMosi
+		    , spi.mosiGpioNum
 		    , SpiHSyncBackporchWaitCycle
 		);
 
-		// VSYNC Pulse
-		{
-		    const double            freq_hz         = VgaVSyncFrequencyInHz;
-		    const ledc_timer_bit_t  duty_resolution = LEDC_TIMER_11_BIT;
-		    const ledc_timer_t      timer_num       = Peripherals::VTimer;
-
-		    const gpio_num_t        gpio_num        = GpioPins::Vsync;
-			const double            dutyRatio       = VSyncPolarity ? VgaVSyncDuty : 1.0 - VgaVSyncDuty;
-		    const ledc_channel_t    ledc_channel    = Peripherals::VChannel;
-			const myledc_intr_type_t	enable_overflow_interrupt	= MYLEDC_INTR_OVERFLOW;
-
-		    myledc_set_frequency_and_duty(
-		          gpio_num
-		        , freq_hz
-		        , dutyRatio
-		        , duty_resolution
-		        , timer_num
-		        , ledc_channel
-				, enable_overflow_interrupt
-		    );
-
-			myledc_set_ovf_isr_handler(
-				  timer_num
-				, vsyncIsr
-				, reinterpret_cast<void*>(this)
-			);
-		}
-
-		// HSYNC Pulse
-		{
-		    const double            freq_hz         = VgaHSyncFrequencyInHz;
-		    const ledc_timer_bit_t  duty_resolution = LEDC_TIMER_10_BIT;
-			const ledc_timer_t      timer_num       = Peripherals::HTimer;
-
-		    const gpio_num_t        gpio_num        = GpioPins::Hsync;
-			const double            dutyRatio       = HSyncPolarity ? VgaHSyncDuty : 1.0 - VgaHSyncDuty;
-		    const ledc_channel_t    ledc_channel    = Peripherals::HChannel;
-			const myledc_intr_type_t	enable_overflow_interrupt	= MYLEDC_INTR_OVERFLOW;
-
-		    myledc_set_frequency_and_duty(
-		          gpio_num
-		        , freq_hz
-		        , dutyRatio
-		        , duty_resolution
-		        , timer_num
-		        , ledc_channel
-				, enable_overflow_interrupt
-		    );
-
-			myledc_set_ovf_isr_handler(
-				  timer_num
-				, hsyncIsr
-				, reinterpret_cast<void*>(this)
-			);
-		}
+		intr_handle_t my_rmt_isr_handle;
+		ESP_ERROR_CHECK(esp_intr_alloc(ETS_RMT_INTR_SOURCE, ESP_INTR_FLAG_SHARED, rmtIsr, this, &my_rmt_isr_handle));
 
 		portDISABLE_INTERRUPTS();
-		kickTimerAndDma();
+		// Reset timers and begin SPI DMA transfer
+		spi_dev_t* const spiHw = getSpiHw();
+
+		// Here, we're waiting for completion of RMT TX.  When TX is completed,
+		// RMT channel's internal counter becomes some constant value (maybe 0?).
+		// Therefore, we can see stable behaviour of RMT channel.
+		{
+			auto& hsyncRmtConf1 = RMT.conf_ch[rmt.hsyncChannel].conf1;
+			auto& vsyncRmtConf1 = RMT.conf_ch[rmt.vsyncChannel].conf1;
+
+			hsyncRmtConf1.tx_conti_mode	= 0;
+			vsyncRmtConf1.tx_conti_mode	= 0;
+
+			const uint32_t mask = BIT(rmt.hsyncChannel * 3 + 0) | BIT(rmt.vsyncChannel * 3 + 0);
+			for(;;) {
+				const uint32_t int_raw = RMT.int_raw.val;
+				if((int_raw & mask) == mask) {
+					break;
+				}
+			}
+
+			hsyncRmtConf1.ref_cnt_rst	= 1;	// RMT_REF_CNT_RST_CH	Setting this bit resets the clock divider of channel n. (R/W)
+			vsyncRmtConf1.ref_cnt_rst	= 1;	// RMT_REF_CNT_RST_CH
+
+			hsyncRmtConf1.mem_rd_rst	= 1;	// RMT_MEM_RD_RST_CHn	Set this bit to reset the read-RAM address for channel n by accessing the transmitter. (R/W)
+			vsyncRmtConf1.mem_rd_rst	= 1;	// RMT_MEM_RD_RST_CHn
+		}
+
+
+		spiHw->dma_conf.dma_tx_stop		= 1;	// Stop SPI DMA
+		spiHw->ctrl2.val           		= 0;	// Reset timing
+		spiHw->dma_conf.dma_tx_stop		= 0;	// Disable stop
+		spiHw->dma_conf.dma_continue	= 1;	// Set contiguous mode
+		spiHw->dma_out_link.start		= 1;	// Start SPI DMA transfer (1)
+
+		ESP_ERROR_CHECK(rmt_set_tx_thr_intr_en(rmt.hsyncChannel, true, 1));
+		ESP_ERROR_CHECK(rmt_set_tx_thr_intr_en(rmt.vsyncChannel, true, 7));
+
+		clearIsrCounters();
+
+		kickPeripherals(spiHw, rmt.hsyncChannel, rmt.vsyncChannel);
 		portENABLE_INTERRUPTS();
+
+		return ESP_OK;
 	}
 
-	void IRAM_ATTR kickTimerAndDma() {
-		// Reset timers and begin SPI DMA transfer
-		const ledc_mode_t       ledc_speed_mode     = LEDC_HIGH_SPEED_MODE;
-		spi_dev_t* const spiHw = myspi_get_hw_for_host(Peripherals::SpiHost);
+	static void IRAM_ATTR kickPeripherals(
+		  spi_dev_t* spiHw
+		, rmt_channel_t hsyncChannel
+		, rmt_channel_t vsyncChannel
+	) {
+		auto& hsyncRmtConf1 = RMT.conf_ch[hsyncChannel].conf1;
+		auto& vsyncRmtConf1 = RMT.conf_ch[vsyncChannel].conf1;
 
-		const uint32_t v_timer_conf = LEDC.timer_group[ledc_speed_mode].timer[Peripherals::VTimer].conf.val;
-		const uint32_t h_timer_conf = LEDC.timer_group[ledc_speed_mode].timer[Peripherals::HTimer].conf.val;
+		hsyncRmtConf1.tx_conti_mode		= 1;	// RMT: Set this bit to start sending data on channel n, in contiguous mode.
+		vsyncRmtConf1.tx_conti_mode		= 1;	// RMT: Set this bit to start sending data on channel n, in contiguous mode.
+		spiHw->cmd.usr					= 1;	// SPI: Start SPI DMA transfer
+	}
 
-		const uint32_t rst_mask = LEDC_HSTIMER0_RST;
+	lldesc_t* getLldescs() {
+		return descs;
+	}
 
-		const uint32_t v_timer_conf_rst0 = v_timer_conf & ~rst_mask;
-		const uint32_t h_timer_conf_rst0 = h_timer_conf & ~rst_mask;
-		const uint32_t v_timer_conf_rst1 = v_timer_conf |  rst_mask;
-		const uint32_t h_timer_conf_rst1 = h_timer_conf |  rst_mask;
-
-		LEDC.timer_group[ledc_speed_mode].timer[Peripherals::VTimer].conf.val = v_timer_conf_rst1;
-		LEDC.timer_group[ledc_speed_mode].timer[Peripherals::HTimer].conf.val = h_timer_conf_rst1;
-
-//		uint32_t c0;
-//		asm volatile("rsr %0, ccount" : "=a"(c0));
-
-		// Start H-Sync timer
-		LEDC.timer_group[ledc_speed_mode].timer[Peripherals::HTimer].conf.val = h_timer_conf_rst0;
-
-		// Start SPI DMA transfer (2)
-		spiHw->cmd.usr = 1;
-		// Start SPI DMA transfer (1)
-		spiHw->dma_out_link.start   = 1;
-
-		// Make H-Sync backporch
-		//      TODO : Find more stable way for waiting.
-		asm volatile("nop");
-		asm volatile("nop");
-		asm volatile("nop");
-		asm volatile("nop");
-
-//		https://github.com/espressif/arduino-esp32/issues/282#issuecomment-289093098
-//		const uint32_t	vsyncWaitCycle	= 0;
-//		const uint32_t	timeout			= c0 + vsyncWaitCycle;
-//		for(;;) {
-//			uint32_t c1;
-//			asm volatile("rsr %0, ccount" : "=a"(c1));
-//			if(static_cast<int32_t>(timeout - c1) <= 0) {
-//				break;
-//			}
-//		}
-
-		// Start V-Sync timer
-		LEDC.timer_group[ledc_speed_mode].timer[Peripherals::VTimer].conf.val = v_timer_conf_rst0;
+	spi_dev_t* getSpiHw() {
+		return spi.hw;
 	}
 
 	int32_t getFrameCount32() const {
@@ -327,39 +309,53 @@ public:
 	}
 
 	int64_t getFrameCount64() const {
-		return frameCount;
-	}
-
-	void beginFrame() {
-	}
-
-	void endFrame() {
+		return isrCounters.vcounterEvt;
 	}
 
 	void onVsync() {
-		++frameCount;
+		isrCounters.vcounterEvt += 1;
 		if(vsyncCallback.callback) {
 			vsyncCallback.callback(vsyncCallback.userPtr);
 		}
 	}
 
-	static void vsyncIsr(void* p) {
+	static void IRAM_ATTR vsyncIsr(void* p) {
 		reinterpret_cast<ThisClass*>(p)->onVsync();
-		return;
 	}
 
 	void onHsync() {
+		isrCounters.hcounterEvt += 1;
 	}
 
-	static void hsyncIsr(void* p) {
+	static void IRAM_ATTR hsyncIsr(void* p) {
 		reinterpret_cast<ThisClass*>(p)->onHsync();
-		return;
+	}
+
+	static void rmtIsr(void* p) {
+		reinterpret_cast<ThisClass*>(p)->onRmtEvent();
 	}
 
 	esp_err_t setVsyncCallback(myvga_vsync_callback callback, void* userPtr) {
 		vsyncCallback.callback = callback;
 		vsyncCallback.userPtr = userPtr;
 		return ESP_OK;
+	}
+
+	void clearIsrCounters() {
+		isrCounters.vcounterEvt = 0;
+		isrCounters.hcounterEvt = 0;
+	}
+
+	void onRmtEvent() {
+		const uint32_t intr_st = RMT.int_st.val;
+
+		if(intr_st & BIT(rmt.vsyncChannel + 24)) {
+			onVsync();
+		}
+
+		if(intr_st & BIT(rmt.hsyncChannel + 24)) {
+			onHsync();
+		}
 	}
 
 	struct {
@@ -370,18 +366,38 @@ public:
 	} userVideo;
 
 	struct {
+		spi_host_device_t	host;			// HSPI_HOST or VSPI_HOST
+		int					dmaChan;		// 0, 1 or 2
+		gpio_num_t			mosiGpioNum;	// GPIO
+		spi_dev_t*			hw;
+	} spi;
+
+	struct {
+		rmt_channel_t		hsyncChannel;	// [0,7]
+		rmt_channel_t		vsyncChannel;	// [0,7]
+		gpio_num_t			hsyncGpioNum;	// GPIO
+		gpio_num_t			vsyncGpioNum;	// GPIO
+	} rmt;
+
+	struct {
 		myvga_vsync_callback	callback;
 		void*					userPtr;
 	} vsyncCallback;
 
+	struct {
+		volatile int64_t vcounterEvt;
+		volatile int32_t hcounterEvt;
+	} isrCounters;
+
 	static const size_t blankLineBytes	= VgaSignalWidthInPixels / 8;
 	static VgaContext* ctx;
 
-	int64_t				frameCount;
 	uint8_t*			blankLine;
 	lldesc_t*			descs;
 };
 
+
+////////////////////////////////////////////////////////////////////////////////////////////
 VgaContext* VgaContext::ctx;
 
 #define CTX	VgaContext::ctx
@@ -399,7 +415,6 @@ size_t myvga_prepare_get_memory_size(
 	return VgaContext::calcMemorySize(initParams);
 }
 
-
 esp_err_t myvga_init(
 	  const myvga_init_params_t* initParams
 	, void* dedicatedMemoryForMyvga
@@ -409,23 +424,19 @@ esp_err_t myvga_init(
 	return CTX->init(initParams);
 }
 
-
 esp_err_t myvga_cleanup(void) {
 	const auto result = CTX->cleanup();
 	CTX = nullptr;
 	return result;
 }
 
-
 int32_t myvga_get_frame_count32(void) {
 	return CTX->getFrameCount32();
 }
 
-
 int64_t myvga_get_frame_count64(void) {
 	return CTX->getFrameCount64();
 }
-
 
 esp_err_t myvga_set_vsync_callback_function(myvga_vsync_callback callback, void* user_ptr) {
 	return CTX->setVsyncCallback(callback, user_ptr);
